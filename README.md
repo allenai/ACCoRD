@@ -10,3 +10,6 @@ ACCoRD is a high-quality (Cohen’s κ= 0.658), expert-annotated resource for th
 
 ACCoRD is maintained by [Sonia Murthy](https://github.com/skmur) at the [Allen Institute for AI](https://allenai.org/).
 
+## License
+
+ACCoRD is released under the [Creative Commons Attribution 4.0 International License](https://creativecommons.org/licenses/by/4.0/legalcode). By using ACCoRD, you are agreeing to its usage terms.
