@@ -1,0 +1,519 @@
+---
+title: "User study response evaluation"
+output: html_notebook
+---
+
+### Load data
+```{r}
+library(readr)
+d = read_csv('study-responses-all-preferences-mapped-2.csv', show_col_types=F)
+d <- d[-1]
+```
+
+### Load packages
+```{r}
+require(ggplot2)
+require(reshape2)
+library(dplyr)
+```
+
+
+```{r}
+# select columns for set preference/expertise
+d.part1 <- d[1:47]
+# select columns for description evaluation
+d.part2 <- d[c(1:7, 49:(length(d)-3))]
+```
+
+# Part 1: set preference analysis
+
+### Handle part 1 data
+```{r}
+expertise <- select(d.part1,!contains("set_preference"))
+setpreference <- select(d.part1,!contains("expertise"))
+
+melted.expertise <- melt(expertise, id = c(1:7), variable.name="concept_expertise", value.name = "expertise")
+melted.setpreference <- melt(setpreference, id = c(1:7), variable.name="concept_set_preference", value.name = "set_preference")
+
+print(melted.expertise)
+print(melted.setpreference)
+```
+### binarize set_preference responses and append to melted.setpreference
+
+```{r}
+# within(melted.setpreference, model.matrix(~ set_preference + 0))
+
+cols = c("extractions_our_ranking_binarized", "generations_intuitive_ranking_binarized", "generations_our_ranking_binarized")
+
+melted.setpreference[cols] <- model.matrix(~ set_preference + 0, data=melted.setpreference)
+```
+
+### plot
+```{r}
+# 
+# ggplot(data = melted.setpreference, aes(x = set_preference, color = concept_set_preference)) +
+#     geom_bar()
+
+p <- ggplot(melted.setpreference, aes(concept_set_preference, ..count..), colour="black") + 
+  geom_bar(aes(fill = set_preference), position = "fill") +
+  theme(axis.text.x = element_text(angle = 30, hjust=1))
+
+# Decrease size of shape elements
+p <- p + guides(shape = guide_legend(override.aes = list(size = .1)), fill=guide_legend(ncol=2))
+# Decrease size of color elements
+p <- p + guides(color = guide_legend(override.aes = list(size = 0.5)))
+# decrease size of legend font
+p <- p + theme(legend.title = element_text(size = 5), 
+               legend.text = element_text(size = 5)) + 
+  theme(legend.key.size = unit(.5,"line"))
+
+print(p)
+# pdf(file="set-preference-results.pdf")
+# print(p)
+# dev.off()
+```
+### box plot of preference counts
+```{r}
+df1 <- melted.setpreference %>%
+  group_by(concept_set_preference) %>%
+  summarise(counts=sum(set_preference=="generations_our_ranking"))
+
+df2 <- melted.setpreference %>%
+  group_by(concept_set_preference) %>%
+  summarise(counts=sum(set_preference=="generations_intuitive_ranking"))
+
+df3 <- melted.setpreference %>%
+  group_by(concept_set_preference) %>%
+  summarise(counts=sum(set_preference=="extractions_our_ranking"))
+
+sets <- rep(c("ACCoRD generations", "Naive generations", "ACCoRD extractions"), each=20)
+counts <- c(df1$counts, df2$counts, df3$counts)
+
+boxplot.df <- data.frame(sets, counts) 
+
+bp <- ggplot(boxplot.df, aes(x=reorder(sets, counts), y=counts, fill=sets)) +
+  geom_boxplot(notch = TRUE) +
+  labs(y="Number of preference votes", x="Description set") +
+  scale_fill_manual(values = c("white", "green", "white"))
+
+print(bp)
+pdf(file="set-preference-boxplot.pdf")
+print(bp)
+dev.off()
+
+res <-  boxplot(counts ~ sets, data = boxplot.df, notch = TRUE)
+res
+
+```
+
+
+### compute sum of binarized set preference vectors
+```{r}
+print(sum(melted.setpreference['extractions_our_ranking_binarized']))
+print(sum(melted.setpreference['generations_intuitive_ranking_binarized']))
+print(sum(melted.setpreference['generations_our_ranking_binarized']))
+```
+
+
+```{r}
+# make long form setpreferece df with 4 columns: subjectID, conceptID, ranking method x 3 for each concept , binarized_responses 
+
+binarized.responses <- c(t(melted.setpreference[10:12]))
+ranking.method <- rep(factor(c("extractions_our_ranking", "generations_intuitive_ranking", "generations_our_ranking")),times=440)
+emailID <- rep(c(melted.setpreference[, 3]),each=3)
+conceptID <- rep(c(melted.setpreference[, 8]),each=3)
+
+setpreference.df.long <- data.frame(emailID, conceptID, ranking.method, binarized.responses)
+
+
+# install lme4 
+library(lme4)
+fit <- lmer(binarized.responses ~ ranking.method + (1|emailID) + (1|conceptID), data=setpreference.df.long)
+
+# look at the f-test: does the coefficient for the ranking method matter, if it's significant then ranking method means something --> then you have to ask which one is better/worse and by how much 
+# null hypothesis: ranking method doesn't matter- if this is true, you could just remove ranking_method and get the same model
+# alternative hypothesis: ranking method DOES matter
+```
+
+
+```{r}
+# REML = restricted maximum likelihood method, lmer uses this because numerically fitting a mixed effects model can be difficult and the mle appraoch often fails
+# REML criterion at convergence: model diagonostic if model is not converging
+# summary() vs. print(): summary() includes summary effects on residuals, doesn't include p values
+# negative correlation between fixed effects and intercept
+# by default the lme4 package does not include p-values: 1) p-values cannot be estimated for the random effects because these are latent variables without std devs, 2) estimating p-values for fixed effects within a mixed effects model is an open research question
+summary(fit)
+anova(fit)
+# usually used to compare variance within and between groups to see if the groups differ from each other
+# compare the variability of a model with an without the parameter
+# compare two models: lmer(binarized.responses ~ ranking.method + (1|emailID) + (1|conceptID), data=setpreference.df.long) and lmer(binarized.responses ~ (1|emailID) + (1|conceptID), data=setpreference.df.long)
+without <- lmer(binarized.responses ~ (1|emailID) + (1|conceptID), data=setpreference.df.long)
+anova(fit, without)
+```
+```{r}
+write.csv(setpreference.df.long,"set-preference-long.csv", row.names = FALSE)
+write.csv(melted.setpreference,"set-preference.csv", row.names = FALSE)
+
+```
+
+
+```{r}
+one.way <- aov(binarized.responses ~ ranking.method, data=setpreference.df.long)
+summary(one.way)
+TukeyHSD(one.way)
+```
+
+
+## statistical tests
+### Fisher's exact test: extractions_our_ranking_binarized vs. generations_intuitive_ranking_binarized
+```{r}
+test1 <- data.frame("yes" = c(sum(melted.setpreference['extractions_our_ranking_binarized']), sum(melted.setpreference['generations_intuitive_ranking_binarized'])),
+                    "no" = c(sum(melted.setpreference['extractions_our_ranking_binarized']==0),sum(melted.setpreference['generations_intuitive_ranking_binarized']==0)), 
+                    row.names = c("extractions_our_ranking_binarized", "generations_intuitive_ranking_binarized"))
+mosaicplot(test1, color = TRUE)  
+library(stats)
+fisher.test(test1)
+```
+```{r}
+# # post-hoc pairwise comparison test: look at all combinations of the ranking methods
+# library(emmeans)
+# emmeans()
+
+
+# fishers test assumes independence 
+```
+
+
+### Fisher's exact test: generations_our_ranking_binarized vs. generations_intuitive_ranking_binarized
+```{r}
+test2 <- data.frame("yes" = c(sum(melted.setpreference['generations_our_ranking_binarized']), sum(melted.setpreference['generations_intuitive_ranking_binarized'])),
+                    "no" = c(sum(melted.setpreference['generations_our_ranking_binarized']==0),sum(melted.setpreference['generations_intuitive_ranking_binarized']==0)), 
+                    row.names = c("generations_our_ranking_binarized", "generations_intuitive_ranking_binarized"))
+mosaicplot(test2, color = TRUE)
+library(stats)
+fisher.test(test2)
+```
+### Fisher's exact test: generations_our_ranking_binarized vs. extractions_our_ranking_binarized
+```{r}
+test3 <- data.frame("yes" = c(sum(melted.setpreference['generations_our_ranking_binarized']), sum(melted.setpreference['extractions_our_ranking_binarized'])),
+                    "no" = c(sum(melted.setpreference['generations_our_ranking_binarized']==0),sum(melted.setpreference['extractions_our_ranking_binarized']==0)), 
+                    row.names = c("generations_our_ranking_binarized", "extractions_our_ranking_binarized"))
+mosaicplot(test3, color = TRUE)
+library(stats)
+fisher.test(test3)
+```
+
+### compute correlation for extractions_our_ranking with expertise
+```{r}
+x <- melted.setpreference[,'extractions_our_ranking_binarized']
+y <- melted.expertise[,'expertise']
+cor.test(x, y, method = "pearson")
+cor.test(x, y, method = "spearman")
+```
+
+### compute correlation for generations_intuitive_ranking with expertise
+```{r}
+x <- melted.setpreference[,'generations_intuitive_ranking_binarized']
+y <- melted.expertise[,'expertise']
+cor.test(x, y, method = "pearson")
+cor.test(x, y, method = "spearman")
+```
+
+### compute correlation for generations_our_ranking with expertise
+```{r}
+x <- melted.setpreference[,'generations_our_ranking_binarized']
+y <- melted.expertise[,'expertise']
+cor.test(x, y, method = "pearson")
+cor.test(x, y, method = "spearman")
+```
+
+# Part 2: description-level preferences
+
+### Handle part 2 data: description preferences
+```{r}
+library(dplyr)
+library(tidyr)
+```
+
+
+```{r}
+print(d.part2)
+melted.descriptionpreference <- melt(d.part2, id = c(1:7), variable.name="concept_description", value.name = "preference_rating") %>%
+  separate(concept_description, into = c("concept", "description"), "_")
+```
+
+```{r}
+# get count of each preference rating: at the concept level
+preference.count.byconcept <- melted.descriptionpreference %>% 
+  group_by(concept, description) %>% 
+  summarise(want.sum=sum(preference_rating=="want"))
+
+# preference.count.byconcept$max.concept <- ave(preference.count.byconcept$sum, preference.count.byconcept$concept, FUN = max)
+
+# want <- preference.count.byconcept2[preference.count.byconcept2$preference_rating == "want", ] 
+```
+```{r}
+# doug's metric
+# group by concept, add column for max of the sum of "want" votes, add column for sum of all "want" votes minus the max votes (non top ranked)
+preference.count.byconcept <- preference.count.byconcept %>% 
+  group_by(concept) %>%
+  mutate(max.concept = max(want.sum)) %>%
+  mutate(sum.minus.max = sum(want.sum)-max(want.sum))
+
+# consolidate data to remove concept duplicates and column of individual descriptions' "want" votes
+# add column for proportion of votes that go to the topranked description vs non top ranked ones 
+result <- preference.count.byconcept[,-2] %>% 
+  distinct(concept, .keep_all=TRUE) %>%
+  mutate(fraction=max.concept/sum.minus.max)
+
+sum.topranked <- sum(result$max.concept)
+sum.nontopranked <- sum(result$sum.minus.max)
+print(paste0("sum of top-ranked descriptions' want votes across all concepts: ", sum.topranked))
+print(paste0("sum of non-top ranked descriptions' want votes across all concepts: ", sum.nontopranked))
+print(paste0("fraction of top-ranked vs. non-top-ranked want votes: ", sum.topranked/sum.nontopranked))
+
+# compute confidence interval
+#mean
+sample.mean <- mean(result$fraction)
+print(paste0("mean = ", sample.mean))
+# std dev
+sample.n <- length(result$fraction)
+sample.sd <- sd(result$fraction)
+# standard error of mean
+sample.se <- sample.sd/sqrt(sample.n)
+print(paste0("standard error of mean = ",sample.se))
+# find t-score that corresponds to the confidence interval
+alpha = 0.05
+degrees.freedom = sample.n - 1
+t.score = qt(p=alpha/2, df=degrees.freedom,lower.tail=F)
+print(paste0("t-score = ",t.score))
+# construct margin of error 
+margin.error <- t.score * sample.se
+lower.bound <- sample.mean - margin.error
+upper.bound <- sample.mean + margin.error
+print(paste0(c("lower bound = ", "upper bound = "),c(lower.bound,upper.bound)))
+
+# alternate way
+l.model <- lm(fraction ~ 1, result)
+confint(l.model, level=0.95)
+```
+```{r}
+hist(result$fraction, breaks=10)
+```
+
+```{r}
+preference.count.byparticipant <- melted.descriptionpreference %>% 
+  group_by(email, concept) %>%
+  summarise(want.sum=sum(preference_rating=="want"))
+
+participant.avg <- preference.count.byparticipant %>% 
+  group_by(email) %>%
+  summarise(participant.avg=mean(want.sum))
+
+print(mean(participant.avg$participant.avg))
+
+# alternate way
+l.model <- lm(participant.avg$participant.avg ~ 1)
+confint(l.model, level=0.95)
+```
+
+
+# analyze whether different people want different descriptions and does this correlate with expertise
+```{r}
+library(irr)
+
+calculateConceptKappa <- function(this.concept){
+  # select rows for this concept
+  descriptionpreference.byconcept <- melted.descriptionpreference %>%
+  filter(concept==this.concept) %>%
+  select(email, description, preference_rating)
+  
+  # transform long df to wide to get a participant by description df of preference values
+  tmp <- pivot_wider(descriptionpreference.byconcept, names_from = email, values_from = preference_rating)
+  # compute fleiss kappa on the reshaped df
+  kappam.fleiss(tmp)
+}
+
+# get all unique values in concepts column
+concepts <- unique(melted.descriptionpreference$concept)
+
+# apply the function to calculate Kappas to each concept in theconcept list
+# rbind to create dataframe from lists of lists
+kappas <- do.call(rbind.data.frame, lapply(concepts, calculateConceptKappa))
+kappas$significant <- ifelse(kappas$p.value < 0.05, "TRUE", "FALSE")
+
+# combine concepts and kappa values into a single dataframe
+perConceptKappas <- data.frame(concepts, kappas$value, kappas$significant)
+```
+
+```{r}
+median(melted.expertise$expertise)
+mean(melted.expertise$expertise)
+```
+
+
+
+# add average expertise ratings to perConceptKappa df
+```{r}
+avgExpertise <- melted.expertise %>%
+  group_by(concept_expertise) %>%
+  summarise(avgExpertiseRating=mean(expertise))
+
+perConceptKappas$avg.expertise <- avgExpertise$avgExpertiseRating
+
+```
+
+# average kappa across concepts and 95% CI
+```{r}
+print(mean(perConceptKappas$kappas.value))
+
+l.model <- lm(kappas.value ~ 1, perConceptKappas)
+confint(l.model, level=0.95)
+
+cor.test(perConceptKappas$kappas.value, perConceptKappas$avg.expertise, method=c("pearson"))
+
+summary(lm(perConceptKappas$kappas.value ~ perConceptKappas$avg.expertise))
+```
+
+# plot expertise ratings and kappa
+```{r}
+library(ggplot2)
+# Basic scatter plot
+sp <- ggplot(perConceptKappas, aes(x=avg.expertise, y=kappas.value)) + 
+  geom_point() +
+  geom_text(label=concepts, size=3, hjust = 0, nudge_x = 0.05) + 
+  xlim(1, 5) + 
+  ylim(0, 0.3)
+# + geom_smooth(method=lm) 
+# 
+# print(sp)
+# pdf(file="expertise-kappa-scatterplot.pdf")
+# print(sp)
+# dev.off()
+
+```
+# Do people with more expertise tend to agree with each other more than they do with those with less expertise?
+```{r}
+# Find median expertise rating per concept
+medianExpertise <- melted.expertise %>%
+  group_by(concept_expertise) %>%
+  summarise(median.expertise=median(expertise))
+
+# subset participants based on > median or < median
+aboveMedianExpertise <- melted.expertise[melted.expertise$expertise > ave(melted.expertise$expertise, melted.expertise$concept_expertise, FUN=median) , ]
+
+belowMedianExpertise <- melted.expertise[melted.expertise$expertise < ave(melted.expertise$expertise, melted.expertise$concept_expertise, FUN=median) , ]
+```
+
+
+```{r}
+# function to select description preferences for expertise segment and compute kappas on that
+calculateConceptKappaForExpertiseSegment <- function(this.concept, expertise.data){
+  # select rows of expertise segment for this concept
+  expertisesegment.byconcept <- expertise.data %>%
+    filter(concept_expertise==paste(this.concept, "_expertise",sep = "")) %>%
+    select(email, concept_expertise, expertise)
+  
+  if (nrow(expertisesegment.byconcept) > 0) { 
+  
+    # select description rows for this concept
+    descriptionpreference.byconcept <- melted.descriptionpreference %>%
+      filter(concept==this.concept) %>%
+      select(email, description, preference_rating)
+    
+    # select rows of description preferences with emails in expertise df
+    merged <- merge(x=descriptionpreference.byconcept,y=expertisesegment.byconcept,by="email")
+
+    # transform long df to wide to get a participant by description df of preference values
+    tmp <- pivot_wider(merged[,1:3], names_from = email, values_from = preference_rating)
+  
+    # compute fleiss kappa on the reshaped df
+    res <- kappam.fleiss(tmp)
+  }
+  else {
+    res <- numeric(9)
+  }
+  
+}
+# get all unique values in concepts column
+concepts <- unique(melted.descriptionpreference$concept)
+
+```
+
+```{r}
+# apply the function to calculate Kappas to each concept in the concept list
+# rbind to create dataframe from lists of lists
+kappasAboveMedianExpertise <- do.call(rbind.data.frame, 
+                                      lapply(concepts, calculateConceptKappaForExpertiseSegment,
+                                             expertise.data=aboveMedianExpertise))
+kappasAboveMedianExpertise$significant <- ifelse(kappasAboveMedianExpertise$p.value < 0.05, "TRUE", "FALSE")
+
+```
+
+```{r}
+# apply the function to calculate Kappas to each concept in the concept list
+# rbind to create dataframe from lists of lists
+kappasBelowMedianExpertise <- do.call(rbind.data.frame, 
+                                      lapply(concepts, calculateConceptKappaForExpertiseSegment,
+                                             expertise.data=belowMedianExpertise))
+kappasBelowMedianExpertise$significant <- ifelse(kappasBelowMedianExpertise$p.value < 0.05, "TRUE", "FALSE")
+
+```
+
+```{r}
+# plot above median, below median, and full population segments
+# concatenate values 
+plot.segments <- c(rep("full" , 20) , rep("above" , 20) , rep("below" , 20))
+plot.kappas <- c(kappas$value, kappasAboveMedianExpertise$value, kappasBelowMedianExpertise$value)
+
+concepts <- unique(melted.descriptionpreference$concept)
+plot.concepts <- c(rep(concepts, times=3))
+
+# combine into df
+allSegmentKappas <- data.frame(plot.concepts, plot.segments,plot.kappas)
+
+bpkappas <- ggplot(allSegmentKappas, aes(fill=plot.segments, y=plot.kappas, x=plot.concepts)) + 
+  geom_bar(position="dodge", stat="identity") +
+  theme(axis.text.x = element_text(angle=90, vjust=.5, hjust=1))
+
+print(bpkappas)
+pdf(file="expertise-segment-kappa-barplot.pdf")
+print(bpkappas)
+dev.off()
+
+```
+# save dataframes for expertise and kappa calculations
+```{r}
+write.csv(melted.setpreference,"set-preferences.csv", row.names = FALSE)
+write.csv(melted.descriptionpreference,"description-preferences.csv", row.names = FALSE)
+write.csv(melted.expertise,"expertise-ratings.csv", row.names = FALSE)
+write.csv(medianExpertise,"median-expertise-ratings.csv", row.names = FALSE)
+```
+
+# load in per expertise segment kappas from python analysis file analyze-study-responses.py
+```{r}
+library(readr)
+segment.kappas = read_csv('per-expertise-segment-kappas.csv', show_col_types=F)
+# convert condition column to factor
+segment.kappas$condition <- as.factor(segment.kappas$condition) 
+```
+# fit linear model to test significance
+```{r}
+segment.kappas.model <- lm(segment.kappas$kappa ~ segment.kappas$condition)
+summary(segment.kappas.model)
+
+```
+```{r}
+above <- segment.kappas[segment.kappas$condition == 'above', ]
+below <- segment.kappas[segment.kappas$condition == 'below', ]
+
+print(sd(above$kappa))
+print(sd(below$kappa))
+
+above.cfint <- lm(above$kappa ~ 1)
+confint(above.cfint, level=0.95)
+
+below.cfint <- lm(below$kappa ~ 1)
+confint(below.cfint, level=0.95)
+```
+
