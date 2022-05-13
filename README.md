@@ -1,10 +1,10 @@
 # Automatic Comparison of Concepts with Relational Descriptions (ACCoRD)
 
-A single scientific concept can be described in many different ways, benefiting differences in individuals’ background knowledge. However, current automatic concept description generation systems only produce a single “best” description in the context of a single document.
+Systems that can automatically define unfamiliar terms promise to improve the accessibility of scientific texts, especially for readers who may lack prerequisite background knowledge. However, current systems assume a single “best” description per concept, which fails to account for the many potentially useful ways a concept can be described.
 
-To solve this problem, ACCoRD makes use of the variety of ways a concept is talked about across the scientific literature to produce multiple descriptions of a given target concept, in terms of distinct reference concepts. Our system automatically extracts the relevant text from the scientific literature and produces a succinct, self-contained summary of the concept description.
+To address this problem, we introduce ACCoRD, an end-to-end system tackling the novel task of generating sets of descriptions of scientific concepts. Our system takes advantage of the myriad ways a concept is mentioned across the scientific literature to produce distinct, diverse descriptions of target scien- tific concepts in terms of different reference concepts. To support research on the task, we release an expert-annotated resource, the ACCoRD corpus.
 
-This repository contains the code, demo link, and dataset for the ACCoRD system. See our arXiv preprint for system implementation and details.
+This repository contains the code, demo link, and dataset for the ACCoRD system. See our arXiv preprint for system implementation and dataset details.
 
 ACCoRD is maintained by [Sonia Murthy](https://github.com/skmur) at the [Allen Institute for AI](https://allenai.org/).
 
