@@ -10,7 +10,7 @@ import seaborn as sns
 import matplotlib.pyplot as plt
 
 #--------------------------------------------------------
-openai.api_key = "sk-NzQrkRfqE5lnJPubH7faej1ZcDuz0s40qCkTTeFt" 
+openai.api_key = "" 
 # 4class: ['compare' 'is-a' 'part-of' 'used-for']
 # 3class: ['compare', contrast, 'is-a']
 sum_len = 0
